@@ -32,6 +32,19 @@ class PackageManifest: ObservableObject, Identifiable, Codable, Hashable, Equata
             DispatchQueue.main.async {
                 self.objectWillChange.send()
             }
+            if state.status == .completed {
+                refreshUpdateStatus(force: true)
+            } else if updateStatus != .idle {
+                updateStatus = .idle
+            }
+        }
+    }
+
+    var updateStatus: UpdateStatus = .idle {
+        didSet {
+            DispatchQueue.main.async {
+                self.objectWillChange.send()
+            }
         }
     }
 
@@ -62,6 +75,10 @@ class PackageManifest: ObservableObject, Identifiable, Codable, Hashable, Equata
         signatures = try container.decode([ApplePackage.Sinf].self, forKey: .signatures)
         creation = try container.decode(Date.self, forKey: .creation)
         state = try container.decode(PackageState.self, forKey: .runtime)
+        updateStatus = try container.decodeIfPresent(UpdateStatus.self, forKey: .updateStatus) ?? .idle
+        if state.status == .completed {
+            refreshUpdateStatus()
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -73,10 +90,11 @@ class PackageManifest: ObservableObject, Identifiable, Codable, Hashable, Equata
         try container.encode(signatures, forKey: .signatures)
         try container.encode(creation, forKey: .creation)
         try container.encode(state, forKey: .runtime)
+        try container.encode(updateStatus, forKey: .updateStatus)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, account, package, url, md5, signatures, metadata, creation, runtime
+        case id, account, package, url, md5, signatures, metadata, creation, runtime, updateStatus
     }
 
     static func == (lhs: PackageManifest, rhs: PackageManifest) -> Bool {
@@ -91,6 +109,7 @@ class PackageManifest: ObservableObject, Identifiable, Codable, Hashable, Equata
         hasher.combine(signatures)
         hasher.combine(creation)
         hasher.combine(state)
+        hasher.combine(updateStatus)
     }
 }
 
@@ -109,5 +128,124 @@ extension PackageManifest {
                 cleanUpDir.deleteLastPathComponent()
             }
         } catch {}
+    }
+}
+
+extension PackageManifest {
+    func refreshUpdateStatus(force: Bool = false) {
+        guard state.status == .completed else {
+            if updateStatus != .idle {
+                updateStatus = .idle
+            }
+            return
+        }
+
+        if updateStatus == .checking {
+            return
+        }
+
+        if !force && !updateStatus.allowsRefresh {
+            return
+        }
+
+        updateStatus = .checking
+
+        guard let countryCode = ApplePackage.Configuration.countryCode(for: account.account.store) else {
+            updateStatus = .failed(String(localized: "Unable to determine account region."))
+            logger.warning("Skipping update check for \(package.software.bundleID); unsupported store identifier \(account.account.store)")
+            return
+        }
+
+        Task.detached { [weak self] in
+            guard let self else { return }
+            do {
+                logger.debug("Checking updates for \(self.package.software.bundleID)")
+                let lookup = try await ApplePackage.Lookup.lookup(
+                    bundleID: self.package.software.bundleID,
+                    countryCode: countryCode
+                )
+                let latestVersion = lookup.version
+                let comparison = latestVersion.compare(self.package.software.version, options: .numeric)
+                let status: UpdateStatus = comparison == .orderedDescending
+                    ? .updateAvailable(latest: latestVersion)
+                    : .upToDate(latest: latestVersion)
+                await MainActor.run {
+                    self.updateStatus = status
+                }
+            } catch {
+                logger.warning("Failed to check updates for \(self.package.software.bundleID): \(error.localizedDescription)")
+                await MainActor.run {
+                    self.updateStatus = .failed(String(localized: "Update check failed."))
+                }
+            }
+        }
+    }
+}
+
+extension PackageManifest {
+    enum UpdateStatus: Equatable, Hashable {
+        case idle
+        case checking
+        case upToDate(latest: String)
+        case updateAvailable(latest: String)
+        case failed(String)
+
+        var allowsRefresh: Bool {
+            switch self {
+            case .idle, .failed:
+                return true
+            case .checking, .upToDate, .updateAvailable:
+                return false
+            }
+        }
+    }
+}
+
+extension PackageManifest.UpdateStatus: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case caseName
+        case version
+        case message
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .idle:
+            try container.encode("idle", forKey: .caseName)
+        case .checking:
+            try container.encode("checking", forKey: .caseName)
+        case let .upToDate(latest):
+            try container.encode("upToDate", forKey: .caseName)
+            try container.encode(latest, forKey: .version)
+        case let .updateAvailable(latest):
+            try container.encode("updateAvailable", forKey: .caseName)
+            try container.encode(latest, forKey: .version)
+        case let .failed(message):
+            try container.encode("failed", forKey: .caseName)
+            try container.encode(message, forKey: .message)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let caseName = try container.decode(String.self, forKey: .caseName)
+        switch caseName {
+        case "idle":
+            self = .idle
+        case "checking":
+            self = .checking
+        case "upToDate":
+            let version = try container.decode(String.self, forKey: .version)
+            self = .upToDate(latest: version)
+        case "updateAvailable":
+            let version = try container.decode(String.self, forKey: .version)
+            self = .updateAvailable(latest: version)
+        case "failed":
+            let message = try container.decode(String.self, forKey: .message)
+            self = .failed(message)
+        default:
+            self = .idle
+        }
     }
 }

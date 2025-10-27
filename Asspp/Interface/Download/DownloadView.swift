@@ -49,12 +49,16 @@ struct DownloadView: View {
                         .animation(.interactiveSpring, value: req.state.percent)
                     HStack {
                         Text(req.hint)
+                            .foregroundStyle(req.hintColor)
                         Spacer()
                         Text(req.creation.formatted())
+                            .foregroundStyle(.secondary)
                     }
                     .font(.system(.footnote, design: .rounded))
-                    .foregroundStyle(.secondary)
                 }
+            }
+            .task {
+                req.refreshUpdateStatus()
             }
             .contextMenu {
                 let actions = vm.getAvailableActions(for: req)
@@ -89,9 +93,42 @@ extension PackageManifest {
         case .paused:
             String(localized: "Paused")
         case .completed:
-            String(localized: "Completed")
+            completionHint
         case .failed:
             String(localized: "Failed")
+        }
+    }
+
+    private var completionHint: String {
+        switch updateStatus {
+        case .idle:
+            return String(localized: "Completed")
+        case .checking:
+            return String(localized: "Checking for updates...")
+        case let .upToDate(latest):
+            let prefix = String(localized: "Up to date")
+            return "\(prefix) (\(latest))"
+        case let .updateAvailable(latest):
+            let prefix = String(localized: "Update available")
+            return "\(prefix): \(latest)"
+        case .failed:
+            return String(localized: "Update check failed")
+        }
+    }
+
+    var hintColor: Color {
+        if state.error != nil {
+            return .red
+        }
+        switch updateStatus {
+        case .updateAvailable:
+            return .orange
+        case .failed:
+            return .secondary
+        case .checking:
+            return .secondary
+        case .idle, .upToDate:
+            return .secondary
         }
     }
 }
