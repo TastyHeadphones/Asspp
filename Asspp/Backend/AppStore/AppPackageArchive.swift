@@ -145,7 +145,7 @@ extension AppPackageArchive {
         package.software.releaseNotes
     }
 
-    var formattedPrice: String {
+    var formattedPrice: String? {
         package.software.formattedPrice
     }
 

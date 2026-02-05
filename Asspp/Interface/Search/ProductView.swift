@@ -129,7 +129,7 @@ struct ProductView: View {
 
     var pricing: some View {
         Section {
-            Text("\(archive.formattedPrice)")
+            Text("\(archive.formattedPrice ?? "N/A")")
                 .font(.system(.body, design: .rounded))
             if archive.price == 0 {
                 Button("Acquire License") {
