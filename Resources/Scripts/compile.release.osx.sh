@@ -14,6 +14,18 @@ cd $SRCROOT
 git clean -fdx -f
 git reset --hard
 
+# Generate Developer.xcconfig for CI (codesign completely disabled)
+cat > "$SRCROOT/Configuration/Developer.xcconfig" << 'EOF'
+// CI-generated Developer.xcconfig
+// Code signing is completely disabled for CI builds
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY =
+CODE_SIGN_IDENTITY[sdk=macosx*] =
+CODE_SIGNING_REQUIRED = NO
+CODE_SIGNING_ALLOWED = NO
+EOF
+
 xcodebuild -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
     -configuration Release \
