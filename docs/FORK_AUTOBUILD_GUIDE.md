@@ -1,4 +1,4 @@
-# Young Fork: Asspp 自动签名与自动更新指南
+# Fork: Asspp 自动签名与自动更新指南
 
 本指南用于你自己的 fork 仓库，目标是：
 
