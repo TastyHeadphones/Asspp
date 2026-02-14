@@ -96,7 +96,28 @@ export GITHUB_REPOSITORY="<owner>/<repo>"
 - 检测到新 commit 后自动签名、发布、更新最新安装页
 - 手机始终使用：`/ios/latest/install.html`
 
-## 8. 常见问题
+## 8. 手动触发并选择分支
+
+在 `Actions -> Upstream Signed iOS Build -> Run workflow` 中：
+
+- `source_kind`
+  - `upstream`: 构建上游仓库
+  - `fork`: 构建你自己 fork 仓库
+- `source_branch`: 填要构建的分支名（例如 `main`、`feature/test`）
+- `source_repo`: 当 `source_kind=upstream` 时可指定仓库（默认 `Lakr233/Asspp`）
+- `force_build`: 默认 `true`，手动触发可直接打包
+
+示例：
+
+- 构建你 fork 的 `feature/sign-fix`：
+  - `source_kind=fork`
+  - `source_branch=feature/sign-fix`
+- 构建上游 `develop`：
+  - `source_kind=upstream`
+  - `source_repo=Lakr233/Asspp`
+  - `source_branch=develop`
+
+## 9. 常见问题
 
 - 安装按钮无反应：必须用 Safari 打开安装页
 - 安装失败：设备 UDID 未加入 Ad Hoc 描述文件

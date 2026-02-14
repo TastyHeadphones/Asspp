@@ -5,13 +5,31 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
+      source_kind:
+        description: "Build source repository"
+        required: false
+        type: choice
+        options:
+          - upstream
+          - fork
+        default: upstream
+      source_branch:
+        description: "Branch name to build (e.g. main)"
+        required: false
+        type: string
+        default: main
+      source_repo:
+        description: "Source repository when source_kind=upstream (owner/repo)"
+        required: false
+        type: string
+        default: Lakr233/Asspp
       force_build:
         description: "Force build even if release tag already exists"
         required: false
         type: boolean
-        default: false
+        default: true
       upstream_ref:
-        description: "Upstream git ref (default: refs/heads/main)"
+        description: "Legacy override git ref (e.g. refs/heads/main)"
         required: false
         type: string
 
@@ -29,32 +47,82 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       upstream_sha: ${{ steps.detect.outputs.upstream_sha }}
+      source_repo: ${{ steps.detect.outputs.source_repo }}
+      source_ref: ${{ steps.detect.outputs.source_ref }}
+      source_kind: ${{ steps.detect.outputs.source_kind }}
       short_sha: ${{ steps.detect.outputs.short_sha }}
       tag_name: ${{ steps.detect.outputs.tag_name }}
       should_build: ${{ steps.detect.outputs.should_build }}
       release_exists: ${{ steps.detect.outputs.release_exists }}
     steps:
-      - name: Detect upstream main commit
+      - name: Detect source commit
         id: detect
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPSTREAM_REPO: Lakr233/Asspp
+          SOURCE_KIND_INPUT: ${{ github.event.inputs.source_kind }}
+          SOURCE_BRANCH_INPUT: ${{ github.event.inputs.source_branch }}
+          SOURCE_REPO_INPUT: ${{ github.event.inputs.source_repo }}
           FORCE_BUILD_INPUT: ${{ github.event.inputs.force_build }}
           UPSTREAM_REF_INPUT: ${{ github.event.inputs.upstream_ref }}
         run: |
           set -euo pipefail
 
-          REF="${UPSTREAM_REF_INPUT:-refs/heads/main}"
+          EVENT_NAME="${GITHUB_EVENT_NAME}"
+          DEFAULT_UPSTREAM_REPO="Lakr233/Asspp"
+          SOURCE_KIND="${SOURCE_KIND_INPUT:-upstream}"
+          LEGACY_REF_INPUT="${UPSTREAM_REF_INPUT:-}"
+          SOURCE_BRANCH_RAW="${SOURCE_BRANCH_INPUT:-}"
+          SOURCE_REPO_RAW="${SOURCE_REPO_INPUT:-$DEFAULT_UPSTREAM_REPO}"
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${SOURCE_KIND}" = "fork" ]; then
+              SOURCE_REPO="${GITHUB_REPOSITORY}"
+            else
+              SOURCE_REPO="${SOURCE_REPO_RAW}"
+            fi
+
+            if [ -n "${SOURCE_BRANCH_RAW}" ]; then
+              REQUESTED_REF="${SOURCE_BRANCH_RAW}"
+            elif [ -n "${LEGACY_REF_INPUT}" ]; then
+              REQUESTED_REF="${LEGACY_REF_INPUT}"
+            else
+              REQUESTED_REF="main"
+            fi
+          else
+            SOURCE_REPO="${DEFAULT_UPSTREAM_REPO}"
+            REQUESTED_REF="main"
+            SOURCE_KIND="upstream"
+          fi
+
+          if [[ "${REQUESTED_REF}" == refs/* ]]; then
+            SOURCE_REF="${REQUESTED_REF}"
+            SOURCE_BRANCH_FOR_TAG="${REQUESTED_REF#refs/heads/}"
+          else
+            SOURCE_REF="refs/heads/${REQUESTED_REF}"
+            SOURCE_BRANCH_FOR_TAG="${REQUESTED_REF}"
+          fi
+
           FORCE_BUILD="${FORCE_BUILD_INPUT:-false}"
 
-          UPSTREAM_SHA=$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "${REF}" | awk 'NR == 1 { print $1 }')
-          if [ -z "${UPSTREAM_SHA}" ]; then
-            echo "Failed to resolve upstream ref: ${REF}"
+          SOURCE_SHA=$(git ls-remote "https://github.com/${SOURCE_REPO}.git" "${SOURCE_REF}" | awk 'NR == 1 { print $1 }')
+          if [ -z "${SOURCE_SHA}" ]; then
+            echo "Failed to resolve source ref: ${SOURCE_REPO} ${SOURCE_REF}"
             exit 1
           fi
 
-          SHORT_SHA="${UPSTREAM_SHA:0:7}"
-          TAG_NAME="upstream-main-${SHORT_SHA}"
+          SHORT_SHA="${SOURCE_SHA:0:7}"
+          SAFE_BRANCH=$(echo "${SOURCE_BRANCH_FOR_TAG}" | tr '/._ ' '-' | tr -cd '[:alnum:]-')
+          SAFE_BRANCH="${SAFE_BRANCH:-main}"
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${SOURCE_KIND}" = "fork" ]; then
+              TAG_NAME="manual-fork-${SAFE_BRANCH}-${SHORT_SHA}"
+            else
+              TAG_NAME="manual-upstream-${SAFE_BRANCH}-${SHORT_SHA}"
+            fi
+          else
+            TAG_NAME="upstream-main-${SHORT_SHA}"
+          fi
 
           API_URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG_NAME}"
           HTTP_CODE=$(curl -sS -o /tmp/release.json -w "%{http_code}" \
@@ -78,7 +146,10 @@ jobs:
           fi
 
           {
-            echo "upstream_sha=${UPSTREAM_SHA}"
+            echo "upstream_sha=${SOURCE_SHA}"
+            echo "source_repo=${SOURCE_REPO}"
+            echo "source_ref=${SOURCE_REF}"
+            echo "source_kind=${SOURCE_KIND}"
             echo "short_sha=${SHORT_SHA}"
             echo "tag_name=${TAG_NAME}"
             echo "release_exists=${RELEASE_EXISTS}"
@@ -86,9 +157,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           {
-            echo "### Upstream Detection"
-            echo "- Ref: \`${REF}\`"
-            echo "- Upstream SHA: \`${UPSTREAM_SHA}\`"
+            echo "### Source Detection"
+            echo "- Source kind: \`${SOURCE_KIND}\`"
+            echo "- Source repo: \`${SOURCE_REPO}\`"
+            echo "- Source ref: \`${SOURCE_REF}\`"
+            echo "- Source SHA: \`${SOURCE_SHA}\`"
             echo "- Release tag: \`${TAG_NAME}\`"
             echo "- Existing release: \`${RELEASE_EXISTS}\`"
             echo "- Build this run: \`${SHOULD_BUILD}\`"
@@ -105,13 +178,15 @@ jobs:
       pages_manifest_url: ${{ steps.pages.outputs.pages_manifest_url }}
     env:
       UPSTREAM_SHA: ${{ needs.detect-upstream.outputs.upstream_sha }}
+      SOURCE_REPO: ${{ needs.detect-upstream.outputs.source_repo }}
+      SOURCE_REF: ${{ needs.detect-upstream.outputs.source_ref }}
       SHORT_SHA: ${{ needs.detect-upstream.outputs.short_sha }}
       TAG_NAME: ${{ needs.detect-upstream.outputs.tag_name }}
     steps:
-      - name: Checkout upstream source
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
-          repository: Lakr233/Asspp
+          repository: ${{ env.SOURCE_REPO }}
           ref: ${{ env.UPSTREAM_SHA }}
           path: source
           fetch-depth: 1
@@ -321,6 +396,8 @@ jobs:
           IPA_PATH: ${{ steps.export.outputs.ipa_path }}
           BUNDLE_ID: ${{ steps.signing.outputs.bundle_id }}
           BUILD_NUMBER: ${{ steps.signing.outputs.build_number }}
+          SOURCE_REPO: ${{ env.SOURCE_REPO }}
+          SOURCE_REF: ${{ env.SOURCE_REF }}
           UPSTREAM_SHA: ${{ env.UPSTREAM_SHA }}
         run: |
           set -euo pipefail
@@ -381,7 +458,8 @@ jobs:
             </head>
             <body>
               <h1>Install Asspp</h1>
-              <p>Upstream commit: ${UPSTREAM_SHA}</p>
+              <p>Source: ${SOURCE_REPO} (${SOURCE_REF})</p>
+              <p>Commit: ${UPSTREAM_SHA}</p>
               <p><a href="${OTA_URL}">Tap here to install/update</a></p>
               <p>If installation fails, verify your provisioning profile includes this device UDID and trust the certificate in Settings.</p>
             </body>
@@ -390,9 +468,10 @@ jobs:
 
           NOTES_PATH="${RUNNER_TEMP}/${NOTES_NAME}"
           cat > "${NOTES_PATH}" <<EOF
-          Automated signed iOS build from upstream \`Lakr233/Asspp\`.
+          Automated signed iOS build from source \`${SOURCE_REPO}\`.
           
-          - Upstream commit: \`${UPSTREAM_SHA}\`
+          - Source ref: \`${SOURCE_REF}\`
+          - Source commit: \`${UPSTREAM_SHA}\`
           - Bundle ID: \`${BUNDLE_ID}\`
           - Build number: \`${BUILD_NUMBER}\`
           - OTA install link: \`${OTA_URL}\`
@@ -452,6 +531,8 @@ jobs:
           SHORT_SHA: ${{ env.SHORT_SHA }}
           BUNDLE_ID: ${{ steps.signing.outputs.bundle_id }}
           BUILD_NUMBER: ${{ steps.signing.outputs.build_number }}
+          SOURCE_REPO: ${{ env.SOURCE_REPO }}
+          SOURCE_REF: ${{ env.SOURCE_REF }}
           UPSTREAM_SHA: ${{ env.UPSTREAM_SHA }}
           IPA_NAME: ${{ steps.assets.outputs.ipa_name }}
           RELEASE_URL: ${{ steps.publish.outputs.release_url }}
@@ -527,7 +608,8 @@ jobs:
             </head>
             <body>
               <h1>Install Asspp (Latest)</h1>
-              <p>Upstream commit: ${UPSTREAM_SHA}</p>
+              <p>Source: ${SOURCE_REPO} (${SOURCE_REF})</p>
+              <p>Commit: ${UPSTREAM_SHA}</p>
               <p><a href="${LATEST_OTA_URL}">Tap to install or update</a></p>
               <p><a href="${RELEASE_URL}">Release details</a></p>
               <p><a href="${IPA_URL}">Direct IPA download</a></p>
@@ -545,7 +627,8 @@ jobs:
             </head>
             <body>
               <h1>Install Asspp (${SHORT_SHA})</h1>
-              <p>Upstream commit: ${UPSTREAM_SHA}</p>
+              <p>Source: ${SOURCE_REPO} (${SOURCE_REF})</p>
+              <p>Commit: ${UPSTREAM_SHA}</p>
               <p><a href="${SHA_OTA_URL}">Tap to install this version</a></p>
               <p><a href="${RELEASE_URL}">Release details</a></p>
               <p><a href="${IPA_URL}">Direct IPA download</a></p>
