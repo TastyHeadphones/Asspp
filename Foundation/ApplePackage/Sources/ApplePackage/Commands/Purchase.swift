@@ -49,11 +49,13 @@ public enum Purchase {
         )
         defer { _ = client.shutdown() }
 
+        let anisetteHeaders = try await Configuration.anisetteHeaders()
         let request = try makeRequest(
             account: account,
             app: app,
             guid: guid,
-            pricingParameters: pricingParameters
+            pricingParameters: pricingParameters,
+            anisetteHeaders: anisetteHeaders
         )
         let response = try await client.execute(request: request).get()
 
@@ -75,6 +77,15 @@ public enum Purchase {
         guard let dict = plist else { try ensureFailed("invalid response") }
 
         if let failureType = dict["failureType"] as? String {
+            if failureType.isEmpty,
+               let customerMessage = dict["customerMessage"] as? String,
+               customerMessage == "MZFinance.BadLogin.Configurator_message"
+            {
+                throw AuthenticationError.twoFactorRequired("""
+                Apple ID authentication requires verification code.
+                Re-authenticate the account with a 2FA code, then retry.
+                """)
+            }
             switch failureType {
             case "2059":
                 try ensureFailed("item is temporarily unavailable")
@@ -104,7 +115,8 @@ public enum Purchase {
         account: Account,
         app: Software,
         guid: String,
-        pricingParameters: String
+        pricingParameters: String,
+        anisetteHeaders: [String: String]
     ) throws -> HTTPClient.Request {
         let payload: [String: Any] = [
             "appExtVrsId": "0",
@@ -132,12 +144,20 @@ public enum Purchase {
             ("X-Token", account.passwordToken),
         ]
 
-        for item in account.cookie.buildCookieHeader(URL(string: "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/buyProduct")!) {
+        let url = URL(string: "https://p25-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/buyProduct")!
+        for (k, v) in anisetteHeaders {
+            if headers.contains(where: { $0.0.lowercased() == k.lowercased() }) {
+                continue
+            }
+            headers.append((k, v))
+        }
+
+        for item in account.cookie.buildCookieHeader(url) {
             headers.append(item)
         }
 
         return try .init(
-            url: "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/buyProduct",
+            url: url.absoluteString,
             method: .POST,
             headers: .init(headers),
             body: .data(data)

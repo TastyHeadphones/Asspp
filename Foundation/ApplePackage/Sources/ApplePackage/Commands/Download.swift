@@ -29,11 +29,13 @@ public enum Download {
         )
         defer { _ = client.shutdown() }
 
+        let anisetteHeaders = try await Configuration.anisetteHeaders()
         let request = try makeRequest(
             account: account,
             app: app,
             guid: deviceIdentifier,
-            externalVersionID: externalVersionID ?? ""
+            externalVersionID: externalVersionID ?? "",
+            anisetteHeaders: anisetteHeaders
         )
         let response = try await client.execute(request: request).get()
 
@@ -55,6 +57,15 @@ public enum Download {
         guard let dict = plist else { try ensureFailed("invalid response") }
 
         if let failureType = dict["failureType"] as? String {
+            if failureType.isEmpty,
+               let customerMessage = dict["customerMessage"] as? String,
+               customerMessage == "MZFinance.BadLogin.Configurator_message"
+            {
+                throw AuthenticationError.twoFactorRequired("""
+                Apple ID authentication requires verification code.
+                Re-authenticate the account with a 2FA code, then retry.
+                """)
+            }
             switch failureType {
             case "2034":
                 try ensureFailed("password token is expired")
@@ -114,7 +125,8 @@ public enum Download {
         account: Account,
         app: Software,
         guid: String,
-        externalVersionID: String
+        externalVersionID: String,
+        anisetteHeaders: [String: String]
     ) throws -> HTTPClient.Request {
         var payload: [String: Any] = [
             "creditDisplay": "",
@@ -133,14 +145,24 @@ public enum Download {
             ("User-Agent", Configuration.userAgent),
             ("iCloud-DSID", account.directoryServicesIdentifier),
             ("X-Dsid", account.directoryServicesIdentifier),
+            ("X-Apple-Store-Front", "\(account.store)-1"),
+            ("X-Token", account.passwordToken),
         ]
 
-        for item in account.cookie.buildCookieHeader(URL(string: "https://p25-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct")!) {
+        let url = URL(string: "https://p25-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct")!
+        for (k, v) in anisetteHeaders {
+            if headers.contains(where: { $0.0.lowercased() == k.lowercased() }) {
+                continue
+            }
+            headers.append((k, v))
+        }
+
+        for item in account.cookie.buildCookieHeader(url) {
             headers.append(item)
         }
 
         return try .init(
-            url: "https://p25-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct",
+            url: url.absoluteString,
             method: .POST,
             headers: .init(headers),
             body: .data(data)

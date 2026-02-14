@@ -32,7 +32,22 @@ public enum Configuration {
 
     /// Remote anisette server used for modern Apple authentication flows (GSA).
     /// On non-jailbroken iOS, generating anisette locally is generally not feasible due to private framework/entitlement requirements.
-    public nonisolated(unsafe) static var anisetteServerURL: URL = URL(string: "https://ani.sidestore.io")!
+    public nonisolated(unsafe) static var anisetteServerURL: URL = URL(string: "https://ani.sidestore.io")! {
+        didSet {
+            anisetteProvider = RemoteAnisetteDataProvider(serverURL: anisetteServerURL)
+        }
+    }
+
+    private nonisolated(unsafe) static var anisetteProvider: RemoteAnisetteDataProvider = .init(serverURL: URL(string: "https://ani.sidestore.io")!)
+
+    public static func anisetteHeaders(
+        cpd: Bool = false,
+        clientInfo: Bool = true,
+        appInfo: Bool = false
+    ) async throws -> [String: String] {
+        let anisette = try await anisetteProvider.anisetteData()
+        return try anisette.generateHeaders(cpd: cpd, clientInfo: clientInfo, appInfo: appInfo)
+    }
 
     public nonisolated(unsafe) static var tlsConfiguration: TLSConfiguration = {
         precondition(!deviceIdentifier.isEmpty, "deviceIdentifier must be set")

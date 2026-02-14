@@ -32,6 +32,7 @@ public enum VersionFinder {
         defer { _ = client.shutdown() }
 
         let deviceIdentifier = Configuration.deviceIdentifier
+        let anisetteHeaders = try await Configuration.anisetteHeaders()
 
         var currentURL = try createInitialRequestEndpoint(deviceIdentifier: deviceIdentifier)
         var redirectAttempt = 0
@@ -43,7 +44,8 @@ public enum VersionFinder {
                 account: account,
                 app: app,
                 url: currentURL,
-                guid: deviceIdentifier
+                guid: deviceIdentifier,
+                anisetteHeaders: anisetteHeaders
             )
             let response = try await client.execute(request: request).get()
             defer { finalResponse = response }
@@ -82,6 +84,15 @@ public enum VersionFinder {
 
         guard let items = dict["songList"] as? [[String: Any]], !items.isEmpty else {
             if let failureType = dict["failureType"] as? String {
+                if failureType.isEmpty,
+                   let customerMessage = dict["customerMessage"] as? String,
+                   customerMessage == "MZFinance.BadLogin.Configurator_message"
+                {
+                    throw AuthenticationError.twoFactorRequired("""
+                    Apple ID authentication requires verification code.
+                    Re-authenticate the account with a 2FA code, then retry.
+                    """)
+                }
                 switch failureType {
                 case "2034":
                     try ensureFailed("password token is expired")
@@ -124,7 +135,8 @@ public enum VersionFinder {
         account: Account,
         app: Software,
         url: URL,
-        guid: String
+        guid: String,
+        anisetteHeaders: [String: String]
     ) throws -> HTTPClient.Request {
         let payload: [String: Any] = [
             "creditDisplay": "",
@@ -139,7 +151,16 @@ public enum VersionFinder {
             ("User-Agent", Configuration.userAgent),
             ("iCloud-DSID", account.directoryServicesIdentifier),
             ("X-Dsid", account.directoryServicesIdentifier),
+            ("X-Apple-Store-Front", "\(account.store)-1"),
+            ("X-Token", account.passwordToken),
         ]
+
+        for (k, v) in anisetteHeaders {
+            if headers.contains(where: { $0.0.lowercased() == k.lowercased() }) {
+                continue
+            }
+            headers.append((k, v))
+        }
 
         for item in account.cookie.buildCookieHeader(url) {
             headers.append(item)

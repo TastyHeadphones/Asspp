@@ -49,8 +49,8 @@ enum GSAAuthenticator {
         case .loggedIn:
             break
         case .needsTrustedDevice2FA:
-            _ = try? await send2FAToTrustedDevices(session: session, anisetteProvider: anisetteProvider)
             guard !code.isEmpty else {
+                _ = try? await send2FAToTrustedDevices(session: session, anisetteProvider: anisetteProvider)
                 throw AuthenticationError.twoFactorRequired("""
                 Authentication requires verification code.
                 If no verification code prompted, try logging in at https://account.apple.com to trigger the alert, then fill the 2FA Code field.
@@ -59,13 +59,14 @@ enum GSAAuthenticator {
             try await verifyTrustedDevice2FA(code: code, session: session, anisetteProvider: anisetteProvider)
             session = try await loginEmailPassword(email: email, password: password, anisetteProvider: anisetteProvider)
         case .needsSMS2FA:
-            let verifyBody = try await sendSMS2FAToTrustedPhone(session: session, anisetteProvider: anisetteProvider)
             guard !code.isEmpty else {
+                _ = try await sendSMS2FAToTrustedPhone(session: session, anisetteProvider: anisetteProvider)
                 throw AuthenticationError.twoFactorRequired("""
                 Authentication requires SMS verification code.
                 Request the code on your Apple ID sign-in prompt, then fill the 2FA Code field.
                 """)
             }
+            let verifyBody = try await trustedPhoneVerifyBody(session: session, anisetteProvider: anisetteProvider)
             try await verifySMS2FA(code: code, verifyBody: verifyBody, session: session, anisetteProvider: anisetteProvider)
             session = try await loginEmailPassword(email: email, password: password, anisetteProvider: anisetteProvider)
         case let .needsExtraStep(step):
@@ -323,18 +324,23 @@ enum GSAAuthenticator {
     private static func sendSMS2FAToTrustedPhone(
         session: LoginSession,
         anisetteProvider: RemoteAnisetteDataProvider
+    ) async throws {
+        let body = try await trustedPhoneVerifyBody(session: session, anisetteProvider: anisetteProvider)
+        let headers = try await build2FAHeaders(session: session, anisetteProvider: anisetteProvider, sms: true)
+        let payload = try JSONEncoder().encode(body)
+        // Apple currently rejects PUT here (Allow: GET, POST, OPTIONS).
+        _ = try await sendRawRequest(url: verifyPhoneEndpoint, method: "POST", headers: headers, body: payload)
+    }
+
+    private static func trustedPhoneVerifyBody(
+        session: LoginSession,
+        anisetteProvider: RemoteAnisetteDataProvider
     ) async throws -> VerifyBody {
         let extras = try await getAuthExtras(session: session, anisetteProvider: anisetteProvider)
         guard let phone = extras.trustedPhoneNumbers.first else {
             throw AuthenticationError.gsaMalformedResponse("no trusted phone numbers")
         }
-
-        let body = VerifyBody(phoneNumber: .init(id: phone.id), mode: "sms", securityCode: nil)
-        let headers = try await build2FAHeaders(session: session, anisetteProvider: anisetteProvider, sms: true)
-        let payload = try JSONEncoder().encode(body)
-        // Apple currently rejects PUT here (Allow: GET, POST, OPTIONS).
-        _ = try await sendRawRequest(url: verifyPhoneEndpoint, method: "POST", headers: headers, body: payload)
-        return body
+        return VerifyBody(phoneNumber: .init(id: phone.id), mode: "sms", securityCode: nil)
     }
 
     private static func verifySMS2FA(
