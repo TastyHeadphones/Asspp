@@ -23,6 +23,31 @@ public enum Authenticator {
         code: String = "",
         cookies: [Cookie] = []
     ) async throws -> Account {
+        do {
+            return try await legacyAuthenticate(
+                email: email,
+                password: password,
+                code: code,
+                cookies: cookies
+            )
+        } catch let error as AuthenticationError {
+            switch error {
+            case .legacyForbidden:
+                // Apple has started returning 403 for the legacy MZFinance authenticate endpoint.
+                // Fall back to the modern GSA (SRP) flow which does not rely on that endpoint.
+                return try await GSAAuthenticator.authenticate(email: email, password: password, code: code)
+            default:
+                throw error
+            }
+        }
+    }
+
+    private nonisolated static func legacyAuthenticate(
+        email: String,
+        password: String,
+        code: String,
+        cookies: [Cookie]
+    ) async throws -> Account {
         let deviceIdentifier = Configuration.deviceIdentifier
 
         let client = HTTPClient(
@@ -159,6 +184,12 @@ public enum Authenticator {
         storeFront: inout String
     ) throws -> LoginResponse {
         cookies.mergeCookies(response.cookies)
+
+        if response.status == .forbidden {
+            let correlationKey = response.headers.first(name: "x-apple-jingle-correlation-key")
+                ?? response.headers.first(name: "X-Apple-Jingle-Correlation-Key")
+            throw AuthenticationError.legacyForbidden(correlationKey: correlationKey)
+        }
 
         let readStoreFrontValue = response
             .headers["x-set-apple-store-front"]

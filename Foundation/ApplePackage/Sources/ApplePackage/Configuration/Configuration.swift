@@ -30,6 +30,10 @@ public enum Configuration {
 
     public nonisolated(unsafe) static var userAgent: String = "Configurator/2.17 (Macintosh; OS X 15.2; 24C5089c) AppleWebKit/0620.1.16.11.6"
 
+    /// Remote anisette server used for modern Apple authentication flows (GSA).
+    /// On non-jailbroken iOS, generating anisette locally is generally not feasible due to private framework/entitlement requirements.
+    public nonisolated(unsafe) static var anisetteServerURL: URL = URL(string: "https://ani.sidestore.io")!
+
     public nonisolated(unsafe) static var tlsConfiguration: TLSConfiguration = {
         precondition(!deviceIdentifier.isEmpty, "deviceIdentifier must be set")
         #if DEBUG

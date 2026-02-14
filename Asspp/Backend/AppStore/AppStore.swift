@@ -29,6 +29,13 @@ class AppStore: ObservableObject {
     var deviceIdentifier: String
 
     @MainActor
+    @PublishedPersist(
+        key: "AnisetteServerURL",
+        defaultValue: "https://ani.sidestore.io"
+    )
+    var anisetteServerURL: String
+
+    @MainActor
     @PublishedPersist(key: "DemoMode", defaultValue: false)
     var demoMode: Bool
 
@@ -49,6 +56,23 @@ class AppStore: ObservableObject {
         }
         logger.info("using device identifier: \(deviceIdentifier)")
         ApplePackage.Configuration.deviceIdentifier = deviceIdentifier
+
+        // Configure anisette server used for modern GSA authentication.
+        updateAnisetteServerURL(anisetteServerURL)
+        $anisetteServerURL
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newValue in
+                self?.updateAnisetteServerURL(newValue)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updateAnisetteServerURL(_ value: String) {
+        if let url = URL(string: value), url.scheme == "https" || url.scheme == "http" {
+            ApplePackage.Configuration.anisetteServerURL = url
+        } else {
+            ApplePackage.Configuration.anisetteServerURL = URL(string: "https://ani.sidestore.io")!
+        }
     }
 
     @MainActor

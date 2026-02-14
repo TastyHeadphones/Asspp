@@ -68,6 +68,21 @@ struct SettingView: View {
                 Text("Grant local network permission to install apps and communicate with system services. If hostname is empty, open Settings to grant permission.")
             }
 
+            Section {
+                TextField("https://ani.sidestore.io", text: $vm.anisetteServerURL)
+                    #if os(iOS)
+                        .textContentType(.URL)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled(true)
+                    #endif
+                    .font(.system(.body, design: .monospaced))
+            } header: {
+                Text("Anisette Server")
+            } footer: {
+                Text("Used for Apple ID authentication on non-jailbroken iOS. If login fails, you can switch to another compatible anisette-v3-server.")
+            }
+
             #if canImport(UIKit)
                 Section {
                     Button("Install Certificate") {
