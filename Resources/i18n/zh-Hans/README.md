@@ -53,6 +53,8 @@
 - 使用签名软件重新签名之后安装
 - 或者此[快捷指令](https://www.icloud.com/shortcuts/d3c28f125b724a2da136d560fcf360dc)
   > 复制链接后运行或者在共享页添加后，直接在打开链接时选择 Open In Sidestore
+- 如果你在自己的仓库启用了自动签名流程，可直接打开安装页：
+  `https://<owner>.github.io/<repo>/ios/latest/install.html`
 
 # Mac
 - 前往 [Releases](https://github.com/Lakr233/Asspp/releases) 页面下载最新版本 Asspp.zip
@@ -72,6 +74,93 @@
 ## 📋 已构建的包
 
 请查看 [Releases](https://github.com/Lakr233/Asspp/releases) 页面。
+
+## 🤖 自动签名与自动更新（GitHub Actions + GitHub Pages）
+
+仓库已包含工作流 `.github/workflows/upstream-signed-ios.yml`，可实现：
+
+- 每 30 分钟检查 `Lakr233/Asspp` 的 `main` 是否有新提交
+- 使用你自己的开发者证书自动签名并导出 IPA
+- 自动发布到 GitHub Releases
+- 自动发布 GitHub Pages 固定安装页（用于 iPhone 直接安装/更新）
+
+### 1. 前置条件
+
+- 已付费 Apple Developer 账号
+- `Ad Hoc` 描述文件（包含目标设备 UDID）
+- 已启用 GitHub Actions 和 GitHub Pages 的仓库
+- Pages/Releases 需可公网访问（OTA 场景建议仓库保持公开）
+
+### 2. 开启 GitHub Actions / Pages
+
+1. 进入 `Settings -> Actions -> General -> Workflow permissions`
+2. 选择 `Read and write permissions`
+3. 进入 `Settings -> Pages`
+4. `Source` 选择 `GitHub Actions`
+
+### 3. 准备签名材料
+
+1. 在 Apple Developer 中准备：
+   - App ID（Bundle ID）
+   - `Apple Distribution` 证书
+   - `Ad Hoc` 描述文件（勾选你的设备）
+2. 在钥匙串导出 `.p12`（设置导出密码）
+3. 下载 `.mobileprovision`
+
+### 4. 转成 base64
+
+在 macOS 执行：
+
+```bash
+base64 -i your_cert.p12 | tr -d '\n'
+base64 -i your_profile.mobileprovision | tr -d '\n'
+```
+
+### 5. 配置 Secrets
+
+在 `Settings -> Secrets and variables -> Actions -> Secrets` 配置：
+
+| 名称                              | 必填 | 说明 |
+| --------------------------------- | ---- | ---- |
+| `IOS_CERT_P12_BASE64`             | 是   | `.p12` 的 base64 |
+| `IOS_CERT_PASSWORD`               | 是   | `.p12` 导出密码 |
+| `IOS_PROVISIONING_PROFILE_BASE64` | 是   | `.mobileprovision` 的 base64 |
+| `IOS_KEYCHAIN_PASSWORD`           | 否   | Runner 临时 keychain 密码 |
+| `IOS_TEAM_ID`                     | 否   | Team ID（不填则从描述文件读取） |
+
+### 6. 配置 Variables
+
+在 `Settings -> Secrets and variables -> Actions -> Variables` 配置：
+
+| 名称                   | 必填 | 示例                     | 说明 |
+| ---------------------- | ---- | ------------------------ | ---- |
+| `IOS_EXPORT_METHOD`    | 否   | `ad-hoc`                 | 默认 `ad-hoc` |
+| `IOS_SIGNING_IDENTITY` | 否   | `Apple Distribution`     | 留空则按导出方式自动选择 |
+| `IOS_BUNDLE_ID`        | 否   | `wiki.qaq.Asspp`         | 覆盖 Bundle ID（需与描述文件匹配） |
+| `IOS_OTA_BASE_URL`     | 否   | `https://app.example.com`| OTA 基础 URL，默认使用 GitHub Pages |
+
+### 7. 可选：配置自定义域名
+
+1. 在 `Settings -> Pages` 添加自定义域名
+2. DNS 指向 GitHub Pages
+3. 将 `IOS_OTA_BASE_URL` 设置为你的 HTTPS 域名（不要尾部 `/`）
+
+### 8. 首次运行与验证
+
+1. 打开 `Actions -> Upstream Signed iOS Build`
+2. 点击 `Run workflow` 手动触发一次
+3. 成功后可用地址：
+   - Releases: `https://github.com/<owner>/<repo>/releases`
+   - 安装页: `https://<owner>.github.io/<repo>/ios/latest/install.html`
+   - Manifest: `https://<owner>.github.io/<repo>/ios/latest/manifest.plist`
+
+如果仓库名本身就是 `<owner>.github.io`，URL 中不会有 `/<repo>` 这一段。
+
+### 9. 日常使用
+
+- 工作流每 30 分钟轮询一次上游
+- 上游 `main` 有新提交时自动构建、签名、发布
+- `ios/latest/install.html` 永远指向最新可安装版本
 
 ## 🧑‍⚖️ 开源许可
 
