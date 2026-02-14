@@ -39,6 +39,16 @@ struct ProductView: View {
     @State var showLicenseAlert = false
     @State var hint: Hint?
 
+    private enum TwoFactorIntent {
+        case download
+        case acquireLicense
+    }
+
+    @State private var showTwoFactorPrompt = false
+    @State private var twoFactorCode = ""
+    @State private var twoFactorMessage = ""
+    @State private var twoFactorIntent: TwoFactorIntent = .download
+
     let sizeFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
@@ -91,6 +101,23 @@ struct ProductView: View {
                 Button("Cancel", role: .cancel) {}
             }
         } message: {}
+        .sheet(isPresented: $showTwoFactorPrompt) {
+            TwoFactorPromptView(
+                message: twoFactorMessage,
+                code: $twoFactorCode,
+                onCancel: {
+                    showTwoFactorPrompt = false
+                    twoFactorCode = ""
+                },
+                onContinue: {
+                    let code = twoFactorCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                    showTwoFactorPrompt = false
+                    twoFactorCode = ""
+                    continueWithTwoFactor(code: code)
+                }
+            )
+            .mediumAndLargeDetents()
+        }
     }
 
     var packageHeader: some View {
@@ -207,6 +234,21 @@ struct ProductView: View {
                     hint = Hint(message: String(localized: "Download Requested"), color: nil)
                     showDownloadPage = true
                 }
+            } catch let error as ApplePackage.AuthenticationError {
+                switch error {
+                case let .twoFactorRequired(message):
+                    await MainActor.run {
+                        obtainDownloadURL = false
+                        twoFactorMessage = message
+                        twoFactorIntent = .download
+                        showTwoFactorPrompt = true
+                    }
+                default:
+                    await MainActor.run {
+                        obtainDownloadURL = false
+                        hint = Hint(message: String(localized: "Unable to retrieve download url, please try again later.") + "\n" + error.localizedDescription, color: .red)
+                    }
+                }
             } catch ApplePackageError.licenseRequired where archive.package.software.price == 0 && !acquiringLicense {
                 DispatchQueue.main.async {
                     obtainDownloadURL = false
@@ -237,10 +279,63 @@ struct ProductView: View {
                     acquiringLicense = false
                     licenseHint = String(localized: "Request Successes")
                 }
+            } catch let error as ApplePackage.AuthenticationError {
+                switch error {
+                case let .twoFactorRequired(message):
+                    await MainActor.run {
+                        acquiringLicense = false
+                        twoFactorMessage = message
+                        twoFactorIntent = .acquireLicense
+                        showTwoFactorPrompt = true
+                    }
+                default:
+                    await MainActor.run {
+                        acquiringLicense = false
+                        licenseHint = error.localizedDescription
+                    }
+                }
             } catch {
                 DispatchQueue.main.async {
                     acquiringLicense = false
                     licenseHint = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func continueWithTwoFactor(code: String) {
+        guard let account else { return }
+        guard !code.isEmpty else { return }
+
+        Task {
+            do {
+                _ = try await vm.rotate(id: account.id, code: code)
+                switch twoFactorIntent {
+                case .download:
+                    try await dvm.startDownload(for: archive.package, accountID: account.id)
+                    await MainActor.run {
+                        hint = Hint(message: String(localized: "Download Requested"), color: nil)
+                        showDownloadPage = true
+                    }
+                case .acquireLicense:
+                    try await vm.withAccount(id: account.id) { userAccount in
+                        try await ApplePackage.Purchase.purchase(
+                            account: &userAccount.account,
+                            app: archive.package.software
+                        )
+                    }
+                    await MainActor.run {
+                        licenseHint = String(localized: "Request Successes")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    switch twoFactorIntent {
+                    case .download:
+                        hint = Hint(message: error.localizedDescription, color: .red)
+                    case .acquireLicense:
+                        licenseHint = error.localizedDescription
+                    }
                 }
             }
         }

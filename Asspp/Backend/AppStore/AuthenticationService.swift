@@ -35,7 +35,7 @@ extension AppStore {
 
     @MainActor
     @discardableResult
-    func rotate(id: UserAccount.ID) async throws -> UserAccount? {
+    func rotate(id: UserAccount.ID, code: String = "") async throws -> UserAccount? {
         logger.info("starting account rotation for user id: \(id)")
         guard let account = accounts.first(where: { $0.id == id }) else {
             logger.error("account not found for rotation, id: \(id)")
@@ -45,7 +45,7 @@ extension AppStore {
             let newAppleAccount = try await ApplePackage.Authenticator.authenticate(
                 email: account.account.email,
                 password: account.account.password,
-                code: "",
+                code: code,
                 cookies: account.account.cookie
             )
             let updatedAccount = save(email: account.account.email, account: newAppleAccount)

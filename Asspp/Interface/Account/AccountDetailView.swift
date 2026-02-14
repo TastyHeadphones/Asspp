@@ -28,6 +28,10 @@ struct AccountDetailView: View {
     @State var rotating = false
     @State var rotatingHint = ""
 
+    @State private var showTwoFactorPrompt = false
+    @State private var twoFactorCode = ""
+    @State private var twoFactorMessage = ""
+
     var body: some View {
         FormOnTahoeList {
             Section {
@@ -86,19 +90,54 @@ struct AccountDetailView: View {
             }
         }
         .navigationTitle("Account Details")
+        .sheet(isPresented: $showTwoFactorPrompt) {
+            TwoFactorPromptView(
+                message: twoFactorMessage,
+                code: $twoFactorCode,
+                onCancel: {
+                    showTwoFactorPrompt = false
+                    twoFactorCode = ""
+                },
+                onContinue: {
+                    let code = twoFactorCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                    showTwoFactorPrompt = false
+                    twoFactorCode = ""
+                    rotate(code: code)
+                }
+            )
+            .mediumAndLargeDetents()
+        }
     }
 
     func rotate() {
+        rotate(code: "")
+    }
+
+    private func rotate(code: String) {
         rotating = true
         Task {
             do {
-                try await vm.rotate(id: account?.id ?? "")
-                DispatchQueue.main.async {
+                try await vm.rotate(id: account?.id ?? "", code: code)
+                await MainActor.run {
                     rotating = false
                     rotatingHint = String(localized: "Success")
                 }
+            } catch let error as ApplePackage.AuthenticationError {
+                switch error {
+                case let .twoFactorRequired(message):
+                    await MainActor.run {
+                        rotating = false
+                        twoFactorMessage = message
+                        showTwoFactorPrompt = true
+                    }
+                default:
+                    await MainActor.run {
+                        rotating = false
+                        rotatingHint = error.localizedDescription
+                    }
+                }
             } catch {
-                DispatchQueue.main.async {
+                await MainActor.run {
                     rotating = false
                     rotatingHint = error.localizedDescription
                 }
