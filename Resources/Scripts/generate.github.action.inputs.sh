@@ -119,14 +119,26 @@ command -v openssl >/dev/null 2>&1 || error "openssl command not found"
 require_file "$P12_FILE"
 require_file "$PROFILE_FILE"
 
-if ! openssl pkcs12 -in "$P12_FILE" -passin "pass:${P12_PASSWORD}" -nokeys >/dev/null 2>&1; then
-    error "Invalid .p12 password or unreadable .p12 file"
+P12_VERIFY_ERR_FILE=$(mktemp)
+
+if ! openssl pkcs12 -in "$P12_FILE" -passin "pass:${P12_PASSWORD}" -nokeys >/dev/null 2>"$P12_VERIFY_ERR_FILE"; then
+    # OpenSSL 3 may reject old PKCS#12 algorithms unless -legacy is enabled.
+    if ! openssl pkcs12 -legacy -in "$P12_FILE" -passin "pass:${P12_PASSWORD}" -nokeys >/dev/null 2>"$P12_VERIFY_ERR_FILE"; then
+        P12_ERR_MSG=$(tr '\n' ' ' < "$P12_VERIFY_ERR_FILE" | sed 's/[[:space:]]\+/ /g')
+        if echo "$P12_ERR_MSG" | grep -Eiq "unsupported|legacy|unknown pbe|unknown cipher|mac verify error|invalid password"; then
+            error "Unable to read .p12. Password may be wrong, or file uses legacy encryption unsupported by default OpenSSL 3. Re-export .p12 from Keychain Access and retry. openssl: $P12_ERR_MSG"
+        fi
+        error "Unreadable .p12 file. openssl: $P12_ERR_MSG"
+    fi
 fi
 
 TMP_DIR=$(mktemp -d)
 PROFILE_PLIST="$TMP_DIR/profile.plist"
 cleanup() {
-    rm -rf "$TMP_DIR"
+    if [ -n "${TMP_DIR:-}" ]; then
+        rm -rf "$TMP_DIR"
+    fi
+    rm -f "$P12_VERIFY_ERR_FILE"
 }
 trap cleanup EXIT
 
