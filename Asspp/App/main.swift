@@ -85,62 +85,6 @@ DiggerManager.shared.startDownloadImmediately = true
 
 App.main()
 
-#if canImport(UIKit)
-    import UIKit
-
-    class AppDelegate: NSObject, UIApplicationDelegate {
-        var taskIdentifier: UIBackgroundTaskIdentifier = .invalid
-
-        func applicationWillResignActive(_: UIApplication) {
-            let task = UIApplication.shared.beginBackgroundTask(withName: "Install Service") {}
-            taskIdentifier = task
-        }
-
-        func applicationWillEnterForeground(_: UIApplication) {
-            UIApplication.shared.endBackgroundTask(taskIdentifier)
-        }
-    }
-#endif
-
-#if canImport(AppKit) && !canImport(UIKit)
-    import AppKit
-
-    class AppDelegate: NSObject, NSApplicationDelegate {
-        func applicationDidFinishLaunching(_: Notification) {
-            Task { @MainActor in
-                self.observeDownloadCount()
-            }
-        }
-
-        @MainActor
-        private func observeDownloadCount() {
-            withObservationTracking {
-                let count = Downloads.this.runningTaskCount
-                NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
-            } onChange: {
-                Task { @MainActor in
-                    self.observeDownloadCount()
-                }
-            }
-        }
-
-        func applicationWillResignActive(_: Notification) {
-            // Handle app going to background on macOS
-        }
-
-        func applicationDidBecomeActive(_: Notification) {
-            // Handle app coming to foreground on macOS
-            if let mainWindow = NSApplication.shared.windows.first(where: { $0.identifier?.rawValue == "main-window" }) {
-                mainWindow.styleMask = [.titled, .closable, .fullSizeContentView, .fullScreen]
-            }
-        }
-
-        func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
-            Downloads.this.runningTaskCount == 0
-        }
-    }
-#endif
-
 private struct App: SwiftUI.App {
     #if canImport(UIKit)
         @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
