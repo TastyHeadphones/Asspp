@@ -2,7 +2,7 @@
   "sourceLanguage" : "en",
   "strings" : {
     "" : {
-
+      "shouldTranslate" : false
     },
     "@Lakr233" : {
       "localizations" : {
@@ -73,7 +73,8 @@
             "value" : "%1$@ (%2$lld)"
           }
         }
-      }
+      },
+      "shouldTranslate" : false
     },
     "%@+" : {
       "comment" : "A label displaying the minimum operating system version required to install a software package. The argument is the minimum OS version as a string.",
@@ -1166,7 +1167,20 @@
       }
     },
     "Grant local network permission to install apps. Install and trust the SSL certificate for on-device installation." : {
-
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant local network permission to install apps. Install and trust the SSL certificate for on-device installation."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "授予本地网络权限以安装应用。安装并信任 SSL 证书以进行设备端安装。"
+          }
+        }
+      }
     },
     "Grant local network permission to install apps. Install the SSL certificate through System Keychain." : {
       "localizations" : {
@@ -1565,22 +1579,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无账户"
-          }
-        }
-      }
-    },
-    "No accounts yet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No accounts yet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无账户"
           }
         }
       }
