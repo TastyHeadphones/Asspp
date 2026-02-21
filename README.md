@@ -50,6 +50,19 @@ Fork this repository to automatically build and sign the app with your own devel
 - **macOS**: macOS 15.0 or later.
 - **Apple ID**: Required to communicate with App Store APIs.
 
+## 🚨 Special Notice
+
+Asspp utilizes the same underlying communication protocol as `ipatool`. According to community speculation (unverified), previous outages of this protocol were likely caused by:
+1. Widespread usage triggering Apple's risk control mechanisms.
+2. Protocol modifications following the patching of an iCloud security vulnerability.
+3. Adjustments to Apple's front-end gateways, which now enforce stricter traffic allocation and request validation.
+
+Given the increasingly strict management of these APIs, **if the protocol becomes invalid again in the future, this project may not be able to provide further fixes.**
+
+**⚠️ Important Security Warnings:**
+1. **Protect your GUID:** Please treat your device GUID as a highly sensitive password. Never share or leak it to anyone.
+2. **Do NOT use your primary Apple ID:** We strongly advise using a secondary or burner account with this tool. If your account is banned by Apple, it could potentially result in an unremovable Activation Lock on your device (while there are no confirmed cases of this happening yet, we cannot make any guarantees).
+
 ## ⚠️ Disclaimer
 
 This project is for educational and research purposes only. It is not affiliated with Apple Inc. Use at your own risk.
